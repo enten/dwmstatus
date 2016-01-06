@@ -3,9 +3,11 @@ DWM status bar
 
 ![DWM status bar](dwmstatus.png)
 
-- CPU load
+- Battery level
+- CPU usage
 - Memory usage
 - Swap usage
-- CPU usage
-- CPU temperature
+- SDD usage
+- Volume level
+- Date
 - Clock

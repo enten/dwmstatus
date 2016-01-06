@@ -5,10 +5,21 @@
 #include <string.h>
 #include <time.h>
 #include <locale.h>
+#include <stdint.h>
+
+#include <sys/statvfs.h>
 
 #include <X11/Xlib.h>
+#include <alsa/asoundlib.h>
 
-char *tzwarsaw = "Europe/Warsaw";
+#define BATT_NOW        "/sys/class/power_supply/BAT0/energy_now"
+#define BATT_FULL       "/sys/class/power_supply/BAT0/energy_full"
+#define BATT_STATUS     "/sys/class/power_supply/BAT0/status"
+
+#define MB 1048576
+#define GB 1073741824
+
+char *tzwarsaw = "Europe/Paris";
 
 static Display *dpy;
 
@@ -101,7 +112,7 @@ getcputemp(void) {
     int temperature;
     FILE *fp;
 
-    fp = fopen("/sys/devices/platform/coretemp.0/hwmon/hwmon0/temp1_input", "r");
+    fp = fopen("/sys/devices/platform/coretemp.0/hwmon/hwmon2/temp1_input", "r");
     fscanf(fp, "%d", &temperature);
     fclose(fp);
 
@@ -181,6 +192,90 @@ getswapusage(void) {
     return smprintf("%d", used * 100 / total);
 }
 
+char *
+getbattery(){
+    long lnum1, lnum2 = 0;
+    char *status = malloc(sizeof(char)*12);
+    char s = '?';
+    FILE *fp = NULL;
+    if ((fp = fopen(BATT_NOW, "r"))) {
+        fscanf(fp, "%ld\n", &lnum1);
+        fclose(fp);
+        fp = fopen(BATT_FULL, "r");
+        fscanf(fp, "%ld\n", &lnum2);
+        fclose(fp);
+        fp = fopen(BATT_STATUS, "r");
+        fscanf(fp, "%s\n", status);
+        fclose(fp);
+        if (strcmp(status,"Charging") == 0)
+            s = '+';
+        if (strcmp(status,"Discharging") == 0)
+            s = '-';
+        if (strcmp(status,"Full") == 0)
+            s = '=';
+        return smprintf("%c%ld", s,(lnum1/(lnum2/100)));
+    }
+    else return smprintf("");
+}
+
+char *getdatetime() {
+    time_t current;
+    char buf[18];
+
+    time(&current);
+    strftime(buf, 14, "%m/%d %H:%M", localtime(&current));
+
+    return smprintf("%s",buf);
+}
+
+char *get_volume()
+{
+    snd_mixer_t *handle;
+    snd_mixer_elem_t *elem;
+    snd_mixer_selem_id_t *s_elem;
+
+    snd_mixer_open(&handle, 0);
+    snd_mixer_attach(handle, "default");
+    snd_mixer_selem_register(handle, NULL, NULL);
+    snd_mixer_load(handle);
+    snd_mixer_selem_id_malloc(&s_elem);
+    snd_mixer_selem_id_set_name(s_elem, "Master");
+
+    elem = snd_mixer_find_selem(handle, s_elem);
+
+    if (NULL == elem)
+    {
+        snd_mixer_selem_id_free(s_elem);
+        snd_mixer_close(handle);
+
+        exit(EXIT_FAILURE);
+    }
+
+    long int vol, max, min, percent;
+
+    snd_mixer_selem_get_playback_volume_range(elem, &min, &max);
+    snd_mixer_selem_get_playback_volume(elem, 0, &vol);
+
+    percent = (vol * 100) / max;
+
+    snd_mixer_selem_id_free(s_elem);
+    snd_mixer_close(handle);
+
+    return smprintf("%ld", percent);
+}
+
+char *get_ssd()
+{
+    uintmax_t percent = 0;
+
+    struct statvfs ssd;
+    statvfs(getenv("HOME"), &ssd);
+
+    percent = ((ssd.f_blocks - ssd.f_bfree) * ssd.f_bsize) / GB;
+
+    return smprintf("%ld", percent);
+}
+
 int
 main(void) {
     char *status;
@@ -190,25 +285,35 @@ main(void) {
     char *temperature;
     char *memusage;
     char *swapusage;
+    char *ssdusage;
+    char *datetime = NULL;
+    char *volume = NULL;
 
     if (!(dpy = XOpenDisplay(NULL))) {
         fprintf(stderr, "dwmstatus: cannot open display.\n");
         return 1;
     }
 
-    setlocale(LC_TIME, "pl_PL.UTF-8");
+    setlocale(LC_TIME, "fr_FR.UTF-8");
 
     for (; ; sleep(10)) {
-        avgs = loadavg();
+        //avgs = loadavg();
+	    avgs = getbattery();
         cpumhz = getcpuutil();
-        tmwarsaw = mktimes("%a %H:%M", tzwarsaw);
-        temperature = getcputemp();
+        //tmwarsaw = mktimes("%a %H:%M", tzwarsaw);
+	//tmwarsaw = *getdatetime();
+        datetime = getdatetime();
+        //temperature = getcputemp();
         memusage = getmemusage();
-        swapusage = getswapusage();
+        //swapusage = getswapusage();
+        ssdusage = get_ssd();
+        volume = get_volume();
 
-        status = smprintf("LOAD %s | MEM %s%% SWAP %s%% | CPU %s%% temp: %s°C | %s",
-                avgs, memusage, swapusage, cpumhz, temperature, tmwarsaw);
+        status = smprintf("\033[34;01BAT %s%% | CPU %s%% MEM %s%% SSD %s%% | VOL %s%% | %s",
+                avgs, cpumhz, memusage, ssdusage, volume, datetime);
+
         setstatus(status);
+
         free(avgs);
         free(cpumhz);
         free(tmwarsaw);
