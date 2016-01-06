@@ -309,7 +309,7 @@ main(void) {
         ssdusage = get_ssd();
         volume = get_volume();
 
-        status = smprintf("\033[34;01BAT %s%% | CPU %s%% MEM %s%% SSD %s%% | VOL %s%% | %s",
+        status = smprintf("BAT %s%% | CPU %s%% MEM %s%% SSD %s%% | VOL %s%% | %s",
                 avgs, cpumhz, memusage, ssdusage, volume, datetime);
 
         setstatus(status);
